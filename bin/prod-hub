@@ -12,21 +12,28 @@ show_help() {
     cat << 'EOF'
 Productivity Hub Helper
 =======================
-Usage: prod-hub [OPTION]
+Usage: prod-hub [MODULE] [ARGS...]
 
-CLI Options:
-  -n, --notes     Launch integrated notetaker (TUI)
-  -q, --quicknote Jot a quick timestamped note
-  -t, --timers    Launch quick timers
-  -r, --routine   Launch daily routine TUI
-  -k, --tasks     Launch tasks & checklists wrapper
-  -m, --reminder  Launch quick reminder
-  -s, --sync      Manually force sync data
-  -a, --autosync  Toggle automatic syncing
-  -l, --logs      View launch and sync logs
-  -h, --help      Show this help message and exit
+The Hub acts as a master router. Pass arguments to a module to control it directly.
+Example: prod-hub --timers countdown 15m
+Example: prod-hub --tasks --add
 
-If no option is passed, the interactive Fuzzel GUI menu will launch.
+Modules:
+  -n, --notes     [args...]   Route to Integrated Notetaker
+  -t, --timers    [args...]   Route to QTimer (countdown, stopwatch, pomodoro)
+  -r, --routine   [args...]   Route to Daily Routine TUI
+  -k, --tasks     [args...]   Route to Tasks & Checklists (Tuxedo)
+  -m, --reminder  [args...]   Route to Quick Reminders daemon
+
+Global Commands:
+  -q, --quicknote             Jot a quick timestamped note
+  -s, --sync                  Manually force a Git sync
+  -a, --autosync              Toggle automatic syncing
+  -l, --logs                  View launch and sync logs
+  -h, --help                  Show this help message
+
+To see a specific module's commands, run: prod-hub <module> --help
+(e.g., prod-hub -t --help)
 EOF
 }
 
@@ -159,7 +166,19 @@ while true; do
             exit 0
             ;;
         "❓ Help")
-            "$TERMINAL" -a "view-help" -e sh -c "$BIN_DIR/prod-hub --help | less" &
+            help_choice=$(echo -e "1. Hub Overview\n2. 📝 Notes Help\n3. ⏱️ Timers Help\n4. 🔄 Routine Help\n5. ✅ Tasks Help\n6. 🔔 Reminders Help" | fuzzel_menu "📖 Select Manual ❯ " 6)
+
+            case "$help_choice" in
+                1*) cmd="$BIN_DIR/prod-hub --help" ;;
+                2*) cmd="$BIN_DIR/prod-notes --help" ;;
+                3*) cmd="$BIN_DIR/prod-timers --help" ;;
+                4*) cmd="$BIN_DIR/prod-routine --help" ;;
+                5*) cmd="$BIN_DIR/prod-tasks --help" ;;
+                6*) cmd="$BIN_DIR/prod-reminders --help" ;;
+                *) continue ;; # If user presses Escape, go back to main menu
+            esac
+
+            "$TERMINAL" -a "view-help" -e sh -c "$cmd | less" &
             exit 0
             ;;
         *)
