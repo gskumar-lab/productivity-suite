@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# ~/.productivity-suite/bin/prod-notify
+# Unified Startup & Cron Notification Dispatcher
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/core.sh
+source "$SCRIPT_DIR/../lib/core.sh"
+
+log_event "prod-notify: Starting notification dispatch sequence."
+
+# Allow desktop environments to settle
+sleep 5
+
+# 1. Trigger Tuxedo Overdue Notifications
+"$BIN_DIR/prod-tasks" --reminders-overdue
+
+# 2. Trigger Tuxedo Today Notifications
+"$BIN_DIR/prod-tasks" --reminders-today
+
+# 3. Trigger Routine Incomplete Notifications
+"$BIN_DIR/prod-routine" --notify
+
+# 4. Trigger Background Sync
+log_event "prod-notify: Initiating background autosync."
+sync_data > "$SYNC_LOG" 2>&1 &
+disown
+
+exit 0
+
