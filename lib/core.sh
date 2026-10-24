@@ -72,12 +72,12 @@ notify_hub() {
 fuzzel_menu() {
     local prompt="${1:-Select ❯ }"
     local lines="${2:-10}"
-    fuzzel --dmenu --prompt="$prompt" --lines="$lines" --width 30
+    fuzzel --dmenu --prompt="$prompt" --lines="$lines" 
 }
 
 fuzzel_input() {
     local prompt="${1:-Input ❯ }"
-    echo "" | fuzzel --dmenu --prompt="$prompt" --lines=0  --width=75
+    echo "" | fuzzel --dmenu --prompt="$prompt" --lines=0  --width=60
 }
 
 # Launches a script in foot, waits for exit, and triggers autosync if enabled
