@@ -3,4 +3,4 @@ state/
 data/
 *.log
 *.bak
-
+.autosync
