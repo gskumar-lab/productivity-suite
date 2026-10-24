@@ -122,9 +122,13 @@ while true; do
         AUTOSYNC_LABEL="🔄 Autosync: [OFF]"
     fi
 
-    OPTIONS="📝 Notes\n⚡ Quick Note\n⏱️ Timers\n🔄 Routine\n✅ Tasks\n🔔 Reminder\n☁️ Force Sync\n$AUTOSYNC_LABEL\n📄 View Logs\n❓ Help"
+    # Fetch Master Cron Status
+    MASTER_CRON_STATUS=$("$BIN_DIR/prod-notify" --status)
+    CRON_LABEL="⏰ Master Cron: [$MASTER_CRON_STATUS]"
 
-    CHOICE=$(echo -e "$OPTIONS" | fuzzel_menu "Productivity Hub ❯ " 10)
+    OPTIONS="📝 Notes\n⚡ Quick Note\n⏱️ Timers\n🔄 Routine\n✅ Tasks\n🔔 Reminder\n📢 Run Master Check\n☁️ Force Sync\n$AUTOSYNC_LABEL\n📄 View Logs\n❓ Help"
+
+    CHOICE=$(echo -e "$OPTIONS" | fuzzel_menu "Productivity Hub ❯ " 12)
 
     case "$CHOICE" in
         "📝 Notes")
@@ -151,6 +155,14 @@ while true; do
             "$BIN_DIR/prod-reminders" &
             exit 0
             ;;
+        "📢 Run Master Check")
+            "$BIN_DIR/prod-notify" --run &
+            exit 0
+            ;;
+        "$CRON_LABEL")
+            "$BIN_DIR/prod-notify" --toggle-cron
+            # The loop continues to instantly refresh the ON/OFF label
+            ;;
         "☁️ Force Sync")
             log_event "Force Sync triggered manually"
             sync_data >> "$LOG_FILE" 2>&1 &
@@ -163,7 +175,7 @@ while true; do
             ;;
         "📄 View Logs")
             touch "$LOG_FILE"
-            "$TERMINAL" -a "view-logs" -e less +G "$LOG_FILE" &
+            "$TERMINAL" -a "view-logs" -e le +G "$LOG_FILE" &
             exit 0
             ;;
         "❓ Help")
@@ -176,6 +188,7 @@ while true; do
                 4*) cmd="$BIN_DIR/prod-routine --help" ;;
                 5*) cmd="$BIN_DIR/prod-tasks --help" ;;
                 6*) cmd="$BIN_DIR/prod-reminders --help" ;;
+                7*) cmd="$BIN_DIR/prod-notify --help" ;;
                 *) continue ;; # If user presses Escape, go back to main menu
             esac
 

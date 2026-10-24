@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ~/.productivity-suite/bin/prod-notify
-# Unified Startup & Cron Notification Dispatcher
+# Unified Startup, Cron Notification Dispatcher & Master Reminders
 
 set -uo pipefail
 
@@ -8,24 +8,62 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/core.sh
 source "$SCRIPT_DIR/../lib/core.sh"
 
-log_event "prod-notify: Starting notification dispatch sequence."
+show_help() {
+    cat << 'EOF'
+Master Notifications Helper
+===========================
+Usage: prod-notify [OPTIONS]
 
-# Allow desktop environments to settle
-sleep 5
+Options:
+  --run           Run all master notifications now (Tasks, Routine)
+  --startup       Run startup sequence (sleeps 5s first)
+  --toggle-cron   Toggle the 4-hourly master cron job
+  --status        Output 'ON' or 'OFF' for master cron status
+  -h, --help      Show this help message
+EOF
+}
 
-# 1. Trigger Tuxedo Overdue Notifications
-"$BIN_DIR/prod-tasks" --reminders-overdue
+run_all() {
+    log_event "prod-notify: Dispatching master notifications."
+    "$BIN_DIR/prod-tasks" --reminders-overdue
+    "$BIN_DIR/prod-tasks" --reminders-today
+    "$BIN_DIR/prod-routine" --notify
+    log_event "prod-notify: Initiating background autosync."
+    sync_data > "$SYNC_LOG" 2>&1 &
+    disown
+}
 
-# 2. Trigger Tuxedo Today Notifications
-"$BIN_DIR/prod-tasks" --reminders-today
+toggle_cron() {
+    local backup_file="/tmp/crontab_backup_$(date +%s).bak"
+    crontab -l > "$backup_file" 2>/dev/null || true
 
-# 3. Trigger Routine Incomplete Notifications
-"$BIN_DIR/prod-routine" --notify
+    local tag="# PRODUCTIVITY_HUB_MASTER_CRON"
+    if crontab -l 2>/dev/null | grep -q "$tag"; then
+        (crontab -l 2>/dev/null | grep -v "$tag") | crontab -
+        notify_hub normal 3000 "Master Reminders" "Automated master reminders DISABLED."
+    else
+        (crontab -l 2>/dev/null | grep -v "$tag"; echo "0 */4 * * * $BIN_DIR/prod-notify --run $tag") | crontab -
+        notify_hub normal 3000 "Master Reminders" "Automated master reminders ENABLED (every 4 hrs)."
+    fi
+}
 
-# 4. Trigger Background Sync
-log_event "prod-notify: Initiating background autosync."
-sync_data > "$SYNC_LOG" 2>&1 &
-disown
+check_status() {
+    if crontab -l 2>/dev/null | grep -q "# PRODUCTIVITY_HUB_MASTER_CRON"; then
+        echo "ON"
+    else
+        echo "OFF"
+    fi
+}
 
-exit 0
-
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+        --run)         run_all; exit 0 ;;
+        --startup)     sleep 5; run_all; exit 0 ;;
+        --toggle-cron) toggle_cron; exit 0 ;;
+        --status)      check_status; exit 0 ;;
+        -h|--help)     show_help; exit 0 ;;
+        *)             echo "Unknown option. Use --help" >&2; exit 1 ;;
+    esac
+else
+    run_all
+fi
