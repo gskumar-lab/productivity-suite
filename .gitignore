@@ -1,0 +1,6 @@
+# ~/.productivity-suite/.gitignore
+state/
+data/
+*.log
+*.bak
+

@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# ~/.productivity-suite/bin/prod-hub
+# Main Entry Point & CLI Router
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/core.sh
+source "$SCRIPT_DIR/../lib/core.sh"
+
+show_help() {
+    cat << 'EOF'
+Productivity Hub Helper
+=======================
+Usage: prod-hub [OPTION]
+
+CLI Options:
+  -n, --notes     Launch integrated notetaker (TUI)
+  -q, --quicknote Jot a quick timestamped note
+  -t, --timers    Launch quick timers
+  -r, --routine   Launch daily routine TUI
+  -k, --tasks     Launch tasks & checklists wrapper
+  -m, --reminder  Launch quick reminder
+  -s, --sync      Manually force sync data
+  -a, --autosync  Toggle automatic syncing
+  -l, --logs      View launch and sync logs
+  -h, --help      Show this help message and exit
+
+If no option is passed, the interactive Fuzzel GUI menu will launch.
+EOF
+}
+
+toggle_autosync() {
+    if [[ -f "$AUTOSYNC_FILE" ]]; then
+        rm -f "$AUTOSYNC_FILE"
+        notify_hub normal 3000 "Productivity Hub" "Autosync Disabled"
+    else
+        touch "$AUTOSYNC_FILE"
+        notify_hub normal 3000 "Productivity Hub" "Autosync Enabled"
+    fi
+}
+
+# ==========================================
+# CLI ARGUMENT PARSING
+# ==========================================
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+        -n|--notes)
+            shift
+            launch_and_sync "integrated-notetaker" "$BIN_DIR/prod-notes" "$@"
+            exit 0
+            ;;
+        -q|--quicknote)
+            launch_and_sync "quick-note" "$BIN_DIR/prod-notes" --quick
+            exit 0
+            ;;
+        -t|--timers)
+            shift
+            "$BIN_DIR/prod-timers" "$@"
+            exit 0
+            ;;
+        -r|--routine)
+            shift
+            if [[ "${1:-}" == "--notify" || "${1:-}" == "--status" ]]; then
+                "$BIN_DIR/prod-routine" "$@"
+            else
+                launch_and_sync "routine-tui" "$BIN_DIR/prod-routine" "$@"
+            fi
+            exit 0
+            ;;
+        -k|--tasks)
+            shift
+            if [[ "${1:-}" == "--reminders-today" || "${1:-}" == "--reminders-overdue" ]]; then
+                "$BIN_DIR/prod-tasks" "$@"
+            else
+                launch_and_sync "tuxedo-wrapper" "$BIN_DIR/prod-tasks" "$@"
+            fi
+            exit 0
+            ;;
+        -m|--reminder)
+            shift
+            "$BIN_DIR/prod-reminders" "$@"
+            exit 0
+            ;;
+        -s|--sync)
+            log_event "Force Sync triggered via CLI"
+            sync_data >> "$LOG_FILE" 2>&1
+            exit 0
+            ;;
+        -a|--autosync)
+            toggle_autosync
+            exit 0
+            ;;
+        -l|--logs)
+            touch "$LOG_FILE"
+            "$TERMINAL" -a "view-logs" -e less +G "$LOG_FILE"
+            exit 0
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Try 'prod-hub --help' for more information."
+            exit 1
+            ;;
+    esac
+fi
+
+# ==========================================
+# INTERACTIVE FUZZEL MENU
+# ==========================================
+while true; do
+    if [[ -f "$AUTOSYNC_FILE" ]]; then
+        AUTOSYNC_LABEL="🔄 Autosync: [ON]"
+    else
+        AUTOSYNC_LABEL="🔄 Autosync: [OFF]"
+    fi
+
+    OPTIONS="📝 Notes\n⚡ Quick Note\n⏱️ Timers\n🔄 Routine\n✅ Tasks\n🔔 Reminder\n☁️ Force Sync\n$AUTOSYNC_LABEL\n📄 View Logs\n❓ Help"
+
+    CHOICE=$(echo -e "$OPTIONS" | fuzzel_menu "Productivity Hub ❯ " 10)
+
+    case "$CHOICE" in
+        "📝 Notes")
+            launch_and_sync "integrated-notetaker" "$BIN_DIR/prod-notes" &
+            exit 0
+            ;;
+        "⚡ Quick Note")
+            launch_and_sync "quick-note" "$BIN_DIR/prod-notes" --quick &
+            exit 0
+            ;;
+        "⏱️ Timers")
+            "$BIN_DIR/prod-timers" &
+            exit 0
+            ;;
+        "🔄 Routine")
+            launch_and_sync "routine-tui" "$BIN_DIR/prod-routine" &
+            exit 0
+            ;;
+        "✅ Tasks")
+            launch_and_sync "tuxedo-wrapper" "$BIN_DIR/prod-tasks" &
+            exit 0
+            ;;
+        "🔔 Reminder")
+            "$BIN_DIR/prod-reminders" &
+            exit 0
+            ;;
+        "☁️ Force Sync")
+            log_event "Force Sync triggered manually"
+            sync_data >> "$LOG_FILE" 2>&1 &
+            disown
+            exit 0
+            ;;
+        "$AUTOSYNC_LABEL")
+            toggle_autosync
+            # Loop continues so Fuzzel immediately refreshes the ON/OFF label
+            ;;
+        "📄 View Logs")
+            touch "$LOG_FILE"
+            "$TERMINAL" -a "view-logs" -e less +G "$LOG_FILE" &
+            exit 0
+            ;;
+        "❓ Help")
+            "$TERMINAL" -a "view-help" -e sh -c "$BIN_DIR/prod-hub --help | less" &
+            exit 0
+            ;;
+        *)
+            exit 0
+            ;;
+    esac
+done
+
