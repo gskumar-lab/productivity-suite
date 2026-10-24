@@ -1,0 +1,423 @@
+#!/usr/bin/env bash
+# ~/.productivity-suite/bin/prod-timers
+# QTimer: Fuzzel Launcher + Foot Terminal Countdown, Stopwatch & Pomodoro Engine
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/core.sh
+source "$SCRIPT_DIR/../lib/core.sh"
+
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || readlink -f "${BASH_SOURCE[0]}")"
+
+# --- Storage & Status Files ---
+mkdir -p "$TIMERS_DATA_DIR"
+PRESETS_FILE="$TIMERS_DATA_DIR/presets.txt"
+STATUS_FILE="/tmp/qtimer.status"
+STATE_STATUS_FILE="$STATE_DIR/timer.status"
+
+if [[ ! -f "$PRESETS_FILE" ]]; then
+    printf "Tea (5m)|300\nSoft-Boiled Egg (6m)|360\nPower Nap (20m)|1200\n" > "$PRESETS_FILE"
+fi
+
+# --- ANSI Colors (for Foot TUI) ---
+RED='\033[1;31m'
+GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[1;34m'
+CYAN='\033[1;36m'
+MAGENTA='\033[1;35m'
+RESET='\033[0m'
+BOLD='\033[1m'
+
+# ==========================================
+# 1. CLEANUP, AUDIO & FORMATTING
+# ==========================================
+cleanup() {
+    tput cnorm 2>/dev/null || true
+    rm -f "$STATUS_FILE" "$STATE_STATUS_FILE"
+    echo -e "\n\033[K${RED}Timer stopped.${RESET}"
+    exit 0
+}
+
+update_status() {
+    local text="$1"
+    echo "$text" > "$STATUS_FILE"
+    echo "$text" > "$STATE_STATUS_FILE"
+}
+
+send_timer_alert() {
+    local title="$1"
+    local msg="$2"
+    play_sound
+    notify_hub critical 0 "$title" "$msg" -i alarm-timer
+}
+
+format_time() {
+    local T=$1
+    printf "%02d:%02d:%02d" $((T / 3600)) $(((T % 3600) / 60)) $((T % 60))
+}
+
+parse_time() {
+    local input="$1"
+    local h m s
+    h=$(echo "$input" | grep -ioE '[0-9]+h' | tr -d 'hH' || true)
+    m=$(echo "$input" | grep -ioE '[0-9]+m' | tr -d 'mM' || true)
+    s=$(echo "$input" | grep -ioE '[0-9]+s' | tr -d 'sS' || true)
+    h=${h:-0}; m=${m:-0}; s=${s:-0}
+
+    if [[ $h -eq 0 && $m -eq 0 && $s -eq 0 && "$input" =~ ^[0-9]+$ ]]; then
+        m=$input
+    fi
+    echo $((h * 3600 + m * 60 + s))
+}
+
+draw_progress_bar() {
+    local current=$1
+    local total=$2
+    [[ $total -eq 0 ]] && total=1
+    local width=30
+
+    local pct=$((current * 100 / total))
+    local filled=$((pct * width / 100))
+    local empty=$((width - filled))
+
+    local cur_fmt tot_fmt
+    printf -v cur_fmt "%02d:%02d" $((current / 60)) $((current % 60))
+    printf -v tot_fmt "%02d:%02d" $((total / 60)) $((total % 60))
+
+    local filled_bar="" empty_bar=""
+    [[ $filled -gt 0 ]] && printf -v filled_bar "%${filled}s" ""
+    [[ $empty -gt 0 ]] && printf -v empty_bar "%${empty}s" ""
+
+    filled_bar=${filled_bar// /█}
+    empty_bar=${empty_bar// /░}
+
+    printf "\r[\e[32m%s%s\e[0m] %3d%%\n (%s / %s)\n" \
+        "$filled_bar" "$empty_bar" "$pct" "$cur_fmt" "$tot_fmt"
+}
+
+# ==========================================
+# 2. FOOT TERMINAL TIMER ENGINES
+# ==========================================
+run_countdown() {
+    trap cleanup SIGINT SIGTERM SIGHUP
+    local total_secs=$1
+    local label="${2:-Timer}"
+    local current_secs=$total_secs
+    local paused=0
+
+    clear
+    tput civis 2>/dev/null || true
+
+    while [[ $current_secs -gt 0 ]]; do
+        update_status "$label: $(format_time "$current_secs")"
+
+        local color=$GREEN
+        [[ $current_secs -le 10 ]] && color=$RED
+
+        tput cup 0 0
+        printf "${CYAN}${BOLD}=== %s ===${RESET}\033[K\n\n" "$label"
+
+        if [[ $paused -eq 1 ]]; then
+            echo -e "${YELLOW}⏸  $(format_time "$current_secs") [PAUSED]${RESET} $(draw_progress_bar "$current_secs" "$total_secs")\033[K"
+        else
+            echo -e "${color}⏳ $(format_time "$current_secs")${RESET} $(draw_progress_bar "$current_secs" "$total_secs")\033[K"
+        fi
+
+        echo -e "\n${BLUE}[p]ause  [s]kip  [r]eset  [q]uit${RESET}\033[J"
+
+        local key=""
+        if IFS= read -r -t 1 -n 1 -s key; then
+            case "$key" in
+                p) paused=$((1 - paused)) ;;
+                s) current_secs=0; break ;;
+                r) current_secs=$total_secs ;;
+                q)
+                    echo -en "\n${RED}Are you sure you want to quit? [y/N]${RESET} "
+                    local confirm=""
+                    IFS= read -r -n 1 -s confirm
+                    if [[ "${confirm,,}" == "y" ]]; then cleanup; fi
+                    ;;
+            esac
+        else
+            if [[ $paused -eq 0 ]]; then ((current_secs--)); fi
+        fi
+    done
+
+    echo -e "\n\033[K${MAGENTA}⏰ 00:00:00 - DONE!${RESET}\033[K"
+    send_timer_alert "Timer Complete" "$label has finished!"
+    rm -f "$STATUS_FILE" "$STATE_STATUS_FILE"
+}
+
+run_stopwatch() {
+    trap cleanup SIGINT SIGTERM SIGHUP
+    local elapsed=0
+    local paused=0
+    clear
+    tput civis 2>/dev/null || true
+
+    while true; do
+        update_status "Stopwatch: $(format_time "$elapsed")"
+
+        tput cup 0 0
+        echo -e "${BLUE}${BOLD}=== ⏱️ Stopwatch ===${RESET}\033[K\n"
+
+        if [[ $paused -eq 1 ]]; then
+            echo -e "${YELLOW}⏸  $(format_time "$elapsed") [PAUSED]${RESET}\033[K"
+        else
+            echo -e "${CYAN}⏱️  $(format_time "$elapsed")${RESET}\033[K"
+        fi
+
+        echo -e "\n${BLUE}[p]ause  [s]top  [q]uit${RESET}\033[K\n"
+        echo -en "\033[J"
+
+        local key=""
+        if IFS= read -r -t 1 -n 1 -s key; then
+            case "$key" in
+                p) paused=$((1 - paused)) ;;
+                s) break ;;
+                q)
+                    echo -en "\n${RED}Are you sure you want to quit? [y/N]${RESET} "
+                    local confirm=""
+                    IFS= read -r -n 1 -s confirm
+                    if [[ "${confirm,,}" == "y" ]]; then cleanup; fi
+                    ;;
+            esac
+        else
+            if [[ $paused -eq 0 ]]; then ((elapsed++)); fi
+        fi
+    done
+
+    echo -e "\n\033[K${MAGENTA}⏹ Stopwatch Stopped at $(format_time "$elapsed")${RESET}"
+    read -r -n 1 -s -p "Press any key to close..."
+    cleanup
+}
+
+run_pomodoro() {
+    trap cleanup SIGINT SIGTERM SIGHUP
+    local w_secs=$1
+    local b_secs=$2
+    local cycle=1
+
+    while true; do
+        run_countdown "$w_secs" "🍅 Pomodoro (Cycle $cycle)"
+
+        clear
+        echo -e "${RED}${BOLD}🍅 Pomodoro - Cycle $cycle complete!${RESET}"
+        echo -e "\nPress ${GREEN}[Enter]${RESET} to start break, or ${YELLOW}[q]${RESET} to quit..."
+        local key=""
+        IFS= read -r -n 1 -s key
+        [[ "${key,,}" == "q" ]] && cleanup
+
+        run_countdown "$b_secs" "☕ Short Break (Cycle $cycle)"
+
+        clear
+        echo -e "${BLUE}${BOLD}☕ Break complete!${RESET}"
+        echo -e "\nPress ${GREEN}[Enter]${RESET} for next cycle, or ${YELLOW}[q]${RESET} to quit..."
+        IFS= read -r -n 1 -s key
+        [[ "${key,,}" == "q" ]] && cleanup
+        ((cycle++))
+    done
+}
+
+# ==========================================
+# 3. SPAWNER & CLI ROUTER
+# ==========================================
+spawn_timer_window() {
+    log_event "Spawning timer: $*"
+    if command -v systemd-run >/dev/null 2>&1; then
+        systemd-run --user --quiet "$TERMINAL" -a "quick-timers" -e "$SCRIPT_PATH" "$@"
+    else
+        setsid -f "$TERMINAL" -a "quick-timers" -e "$SCRIPT_PATH" "$@" >/dev/null 2>&1
+    fi
+    exit 0
+}
+
+show_help() {
+    cat << 'EOF'
+QTimer - Terminal Timer & Stopwatch
+===================================
+Usage: prod-timers [COMMAND] [ARGS...]
+
+Commands:
+  c, countdown <time>   Start a countdown (e.g., 10m, 1h30m)
+  s, stopwatch          Start a stopwatch
+  p, pomodoro <w> <b>   Start a pomodoro (e.g., 25m 5m)
+  preset <name>         Run a saved preset by exact name
+  -h, --help            Show this help message
+
+Run without arguments to launch the interactive Fuzzel menu.
+EOF
+}
+
+execute_cli() {
+    case "$1" in
+        -h|--help|help)
+            show_help
+            exit 0
+            ;;
+        c|countdown)
+            local secs
+            secs=$(parse_time "${2:-}")
+            if [[ $secs -gt 0 ]]; then
+                run_countdown "$secs" "Custom Timer ($2)"
+                read -r -n 1 -s -p "Press any key to close..."
+                cleanup
+            else
+                echo -e "${RED}Invalid time format.${RESET}" >&2
+                exit 1
+            fi
+            ;;
+        s|stopwatch)
+            run_stopwatch
+            ;;
+        p|pomodoro)
+            local w b
+            w=$(parse_time "${2:-25m}")
+            b=$(parse_time "${3:-5m}")
+            run_pomodoro "$w" "$b"
+            ;;
+        preset)
+            local p_secs
+            p_secs=$(grep -F "${2:-}|" "$PRESETS_FILE" | cut -d'|' -f2 | head -n 1 || true)
+            if [[ -n "$p_secs" ]]; then
+                run_countdown "$p_secs" "$2"
+                read -r -n 1 -s -p "Press any key to close..."
+                cleanup
+            else
+                echo -e "${RED}Preset not found.${RESET}" >&2
+                exit 1
+            fi
+            ;;
+        --run-countdown)
+            run_countdown "$2" "$3"
+            read -r -n 1 -s -p "Press any key to close..."
+            cleanup
+            ;;
+        --run-stopwatch)
+            run_stopwatch
+            ;;
+        --run-pomodoro)
+            run_pomodoro "$2" "$3"
+            ;;
+        *)
+            echo -e "${RED}Unknown command: $1${RESET}. Use -h or --help for usage." >&2
+            exit 1
+            ;;
+    esac
+}
+
+# ==========================================
+# 4. FUZZEL MENU WORKFLOW
+# ==========================================
+presets_menu() {
+    while true; do
+        local pm_choice
+        pm_choice=$(printf "1. 🚀 Run Preset\n2. ➕ Create Preset\n3. 🗑 Delete Preset\n4. 🔙 Back" | fuzzel_menu "📁 Presets ❯ " 4)
+        [[ -z "$pm_choice" || "$pm_choice" == *"Back"* ]] && return
+
+        case "$pm_choice" in
+            *"Run"*)
+                local list
+                list=$(cut -d'|' -f1 "$PRESETS_FILE")
+                [[ -z "$list" ]] && { notify_hub normal 2000 "QTimer" "No presets saved."; continue; }
+                local selected_name
+                selected_name=$(echo "$list" | fuzzel_menu "🚀 Run Preset ❯ " 8)
+                if [[ -n "$selected_name" ]]; then
+                    local p_secs
+                    p_secs=$(grep -F "${selected_name}|" "$PRESETS_FILE" | head -n 1 | cut -d'|' -f2)
+                    [[ -n "$p_secs" ]] && spawn_timer_window --run-countdown "$p_secs" "$selected_name"
+                fi
+                ;;
+            *"Create"*)
+                local p_name p_dur p_secs
+                p_name=$(fuzzel_input "Preset Name (e.g. Deep Work (45m)) ❯ ")
+                [[ -z "${p_name// /}" ]] && continue
+                p_dur=$(fuzzel_input "Duration for '$p_name' (e.g. 45m, 1h30m) ❯ ")
+                p_secs=$(parse_time "$p_dur")
+                if [[ $p_secs -gt 0 ]]; then
+                    echo "${p_name}|${p_secs}" >> "$PRESETS_FILE"
+                    notify_hub normal 2500 "QTimer" "Preset '$p_name' saved."
+                    trigger_autosync "prod-timers"
+                else
+                    notify_hub critical 2500 "QTimer" "Invalid duration: '$p_dur'"
+                fi
+                ;;
+            *"Delete"*)
+                local list
+                list=$(cut -d'|' -f1 "$PRESETS_FILE")
+                [[ -z "$list" ]] && continue
+                local del_name
+                del_name=$(echo "$list" | fuzzel_menu "🗑 Delete Preset ❯ " 8)
+                if [[ -n "$del_name" ]]; then
+                    grep -vF "${del_name}|" "$PRESETS_FILE" > "${PRESETS_FILE}.tmp" || true
+                    mv "${PRESETS_FILE}.tmp" "$PRESETS_FILE"
+                    notify_hub normal 2500 "QTimer" "Deleted preset '$del_name'."
+                    trigger_autosync "prod-timers"
+                fi
+                ;;
+        esac
+    done
+}
+
+main_menu() {
+    while true; do
+        local choice
+        choice=$(printf "1. 🍅 Pomodoro\n2. ⏳ Custom Countdown\n3. ⏱️ Stopwatch\n4. 📁 Presets Manager\n5. ℹ️ Help / Usage" | fuzzel_menu "⚡ QTimer Menu ❯ " 5)
+        [[ -z "$choice" ]] && exit 0
+
+        case "$choice" in
+            *"Pomodoro"*)
+                local p_choice
+                p_choice=$(printf "1. ⏱️ Classic (25m / 5m)\n2. ⚙️ Custom Intervals\n3. 🔙 Back" | fuzzel_menu "🍅 Pomodoro ❯ " 3)
+                [[ -z "$p_choice" || "$p_choice" == *"Back"* ]] && continue
+
+                if [[ "$p_choice" == *"Classic"* ]]; then
+                    spawn_timer_window --run-pomodoro $((25 * 60)) $((5 * 60))
+                else
+                    local w_input b_input ws bs
+                    w_input=$(fuzzel_input "Work duration (e.g. 45m) ❯ ")
+                    [[ -z "${w_input// /}" ]] && continue
+                    b_input=$(fuzzel_input "Break duration (e.g. 10m) ❯ ")
+                    [[ -z "${b_input// /}" ]] && continue
+                    ws=$(parse_time "$w_input")
+                    bs=$(parse_time "$b_input")
+                    if [[ $ws -gt 0 && $bs -gt 0 ]]; then
+                        spawn_timer_window --run-pomodoro "$ws" "$bs"
+                    else
+                        notify_hub critical 2500 "QTimer" "Invalid interval format."
+                    fi
+                fi
+                ;;
+            *"Custom Countdown"*)
+                local t_input secs
+                t_input=$(fuzzel_input "Enter countdown time (e.g. 10m, 1h30m, 45s) ❯ ")
+                [[ -z "${t_input// /}" ]] && continue
+                secs=$(parse_time "$t_input")
+                if [[ $secs -gt 0 ]]; then
+                    spawn_timer_window --run-countdown "$secs" "Timer ($t_input)"
+                else
+                    notify_hub critical 2500 "QTimer" "Invalid time format: '$t_input'"
+                fi
+                ;;
+            *"Stopwatch"*)
+                spawn_timer_window --run-stopwatch
+                ;;
+            *"Presets Manager"*)
+                presets_menu
+                ;;
+            *"Help"*)
+                "$TERMINAL" -a "view-help" -e sh -c "$SCRIPT_PATH --help | less" &
+                exit 0
+                ;;
+        esac
+    done
+}
+
+if [[ $# -gt 0 ]]; then
+    execute_cli "$@"
+else
+    main_menu
+fi
+

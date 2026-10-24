@@ -1,0 +1,299 @@
+#!/usr/bin/env bash
+# ~/.productivity-suite/bin/prod-reminders
+# Fuzzel-Driven Background Reminder Daemon with Interactive Snooze
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/core.sh
+source "$SCRIPT_DIR/../lib/core.sh"
+
+REMINDER_DIR="$STATE_DIR/reminders"
+mkdir -p "$REMINDER_DIR"
+
+show_help() {
+    cat << 'EOF'
+Quick Reminders (Fuzzel + Background Daemon)
+============================================
+Usage: prod-reminders [OPTION] [ARGS...]
+
+Options:
+  -a, --add <time> <msg>  Set a reminder directly via CLI (e.g., prod-reminders -a 15m "Check oven")
+  -l, --list              List active reminders in terminal
+  -k, --kill <id>         Cancel an active reminder by its ID
+  -h, --help              Show this help message
+
+Run without arguments to open the interactive Fuzzel reminder interface.
+EOF
+}
+
+# ==========================================
+# 1. CLEANUP & LOAD ACTIVE JOBS
+# ==========================================
+declare -a ACTIVE_JOBS=()
+declare -a MENU_LINES=()
+
+load_active_jobs() {
+    ACTIVE_JOBS=()
+    MENU_LINES=()
+    local idx=1
+
+    for job_file in "$REMINDER_DIR"/*.job; do
+        [[ -e "$job_file" ]] || continue
+
+        local start_time secs pid msg
+        if ! {
+            IFS= read -r start_time
+            IFS= read -r secs
+            IFS= read -r pid
+            IFS= read -r msg
+        } < "$job_file" 2>/dev/null; then
+            continue
+        fi
+
+        # Validate PID is numeric, alive, and belongs to bash/sleep
+        if ! [[ "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null || ! ps -p "$pid" -o comm= 2>/dev/null | grep -qE "(bash|sleep)"; then
+            rm -f "$job_file"
+            continue
+        fi
+
+        local now remaining h m s time_str
+        now=$(date +%s)
+        remaining=$((secs - (now - start_time)))
+        [[ $remaining -lt 0 ]] && remaining=0
+
+        h=$((remaining / 3600))
+        m=$(((remaining % 3600) / 60))
+        s=$((remaining % 60))
+
+        time_str=""
+        [[ $h -gt 0 ]] && time_str="${h}h "
+        [[ $m -gt 0 ]] && time_str="${time_str}${m}m "
+        time_str="${time_str}${s}s"
+
+        ACTIVE_JOBS[idx]="$job_file"
+        MENU_LINES+=("[$idx] ⏳ ${time_str} left — ${msg}")
+        ((idx++))
+    done
+}
+
+# ==========================================
+# 2. TIME PARSING & DAEMON SPAWNER
+# ==========================================
+parse_reminder_time() {
+    local raw_input="$1"
+    local clean="${raw_input// /}"
+    clean="${clean,,}"
+
+    PARSED_SECS=0
+    PARSED_LABEL=""
+
+    if [[ "$clean" =~ ^([0-9]+)$ ]]; then
+        local num="${BASH_REMATCH[1]}"
+        PARSED_SECS=$((num * 60))
+        PARSED_LABEL="${num}m"
+    elif [[ "$clean" =~ ^([0-9]+)([smh])$ ]]; then
+        local num="${BASH_REMATCH[1]}"
+        local unit="${BASH_REMATCH[2]}"
+        case "$unit" in
+            s) PARSED_SECS=$num ;;
+            m) PARSED_SECS=$((num * 60)) ;;
+            h) PARSED_SECS=$((num * 3600)) ;;
+        esac
+        PARSED_LABEL="${num}${unit}"
+    elif date -d "$raw_input" >/dev/null 2>&1; then
+        local target_epoch now
+        target_epoch=$(date -d "$raw_input" +%s)
+        now=$(date +%s)
+        PARSED_SECS=$((target_epoch - now))
+        [[ $PARSED_SECS -lt 0 ]] && PARSED_SECS=$((PARSED_SECS + 86400))
+        PARSED_LABEL="$raw_input"
+    fi
+}
+
+spawn_reminder_daemon() {
+    local secs="$1"
+    local msg="$2"
+    local label="$3"
+
+    msg="${msg//$'\n'/ - }"
+    msg="${msg//$'\r'/}"
+
+    local job_file
+    job_file=$(mktemp -p "$REMINDER_DIR" reminder_XXXXXX.job)
+
+    setsid bash -c '
+        SECS="$1"
+        MSG="$2"
+        JOB_FILE="$3"
+
+        printf "%s\n%s\n%s\n%s\n" "$(date +%s)" "$SECS" "$BASHPID" "$MSG" > "$JOB_FILE"
+
+        while true; do
+            TARGET=$(( $(date +%s) + SECS ))
+            while [ "$(date +%s)" -lt "$TARGET" ]; do
+                sleep 5
+            done
+
+            if command -v notify-send &> /dev/null; then
+                AUDIO_FILE="/usr/share/sounds/freedesktop/stereo/complete.oga"
+                if [ -f "$AUDIO_FILE" ] && command -v paplay &> /dev/null; then
+                    paplay "$AUDIO_FILE" 2>/dev/null &
+                elif [ -f "$AUDIO_FILE" ] && command -v pw-play &> /dev/null; then
+                    pw-play "$AUDIO_FILE" 2>/dev/null &
+                else
+                    echo -e "\a"
+                fi
+
+                RESULT=$(notify-send -u critical -t 0 -i alarm-clock-triggered \
+                    --action="snooze=Snooze 10m" \
+                    --action="dismiss=Dismiss" \
+                    "🔔 Reminder" "$MSG")
+
+                if [ "$RESULT" == "snooze" ]; then
+                    SECS=600
+                    printf "%s\n%s\n%s\n%s\n" "$(date +%s)" "$SECS" "$BASHPID" "$MSG" > "$JOB_FILE"
+                    continue
+                else
+                    break
+                fi
+            else
+                wall "REMINDER: $MSG" 2>/dev/null || logger "REMINDER: $MSG"
+                echo -e "\a"
+                break
+            fi
+        done
+
+        rm -f "$JOB_FILE"
+    ' -- "$secs" "$msg" "$job_file" >/dev/null 2>&1 &
+
+    log_event "Reminder set ($label): $msg"
+    notify_hub normal 3000 "🔔 Reminder Set" "In ${label}: ${msg}"
+}
+
+kill_reminder_by_id() {
+    local kill_idx="$1"
+    local job_to_kill="${ACTIVE_JOBS[$kill_idx]:-}"
+
+    if [[ -n "$job_to_kill" && -f "$job_to_kill" ]]; then
+        local target_pid msg
+        target_pid=$(sed -n '3p' "$job_to_kill")
+        msg=$(sed -n '4p' "$job_to_kill")
+
+        if [[ "$target_pid" =~ ^[0-9]+$ ]]; then
+            pkill -P "$target_pid" 2>/dev/null || true
+            kill -15 "$target_pid" 2>/dev/null || true
+        fi
+        rm -f "$job_to_kill"
+        log_event "Cancelled reminder [$kill_idx]: $msg"
+        notify_hub normal 2500 "✖ Reminder Cancelled" "Cancelled: $msg"
+        return 0
+    else
+        notify_hub critical 3000 "Reminder Error" "Invalid reminder ID: $kill_idx"
+        return 1
+    fi
+}
+
+# ==========================================
+# 3. FUZZEL INTERACTIVE WORKFLOW
+# ==========================================
+prompt_new_reminder() {
+    while true; do
+        local time_in
+        time_in=$(fuzzel_input "In how long? (e.g. 15m, 2h, 45, 14:30) ❯ ")
+        [[ -z "${time_in// /}" ]] && exit 0
+
+        # Allow k<id> shortcut directly inside the time prompt as well
+        if [[ "${time_in,,}" =~ ^k([0-9]+)$ ]]; then
+            kill_reminder_by_id "${BASH_REMATCH[1]}"
+            exit 0
+        fi
+
+        parse_reminder_time "$time_in"
+
+        if [[ "$PARSED_SECS" -gt 0 ]]; then
+            local msg
+            msg=$(fuzzel_input "Remind me to ❯ ")
+            if [[ -n "${msg// /}" ]]; then
+                spawn_reminder_daemon "$PARSED_SECS" "$msg" "$PARSED_LABEL"
+                exit 0
+            else
+                notify_hub normal 2500 "Reminder" "Empty message. Try again."
+            fi
+        else
+            notify_hub critical 2500 "Reminder" "Invalid time format: '$time_in'"
+        fi
+    done
+}
+
+# ==========================================
+# 4. CLI & ENTRY POINT
+# ==========================================
+load_active_jobs
+
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -l|--list)
+            if [[ ${#MENU_LINES[@]} -eq 0 ]]; then
+                echo "No active reminders."
+            else
+                printf "%s\n" "${MENU_LINES[@]}"
+            fi
+            exit 0
+            ;;
+        -k|--kill)
+            [[ -z "${2:-}" ]] && { echo "Usage: prod-reminders --kill <id>"; exit 1; }
+            kill_reminder_by_id "$2"
+            exit $?
+            ;;
+        -a|--add)
+            [[ -z "${2:-}" || -z "${3:-}" ]] && { echo "Usage: prod-reminders --add <time> <message>"; exit 1; }
+            parse_reminder_time "$2"
+            if [[ "$PARSED_SECS" -gt 0 ]]; then
+                shift 2
+                spawn_reminder_daemon "$PARSED_SECS" "$*" "$PARSED_LABEL"
+                exit 0
+            else
+                echo "Error: Invalid time format '$2'." >&2
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Unknown option: $1. Use --help for usage." >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# If no active reminders exist, jump straight to setting a new one
+if [[ ${#MENU_LINES[@]} -eq 0 ]]; then
+    prompt_new_reminder
+    exit 0
+fi
+
+# Otherwise display active reminders + option to add new
+ MENU_OPTIONS="➕ Set New Reminder"
+for line in "${MENU_LINES[@]}"; do
+    MENU_OPTIONS+="\n$line"
+done
+
+LINES_COUNT=$(( ${#MENU_LINES[@]} + 1 ))
+[[ $LINES_COUNT -gt 12 ]] && LINES_COUNT=12
+
+CHOICE=$(echo -e "$MENU_OPTIONS" | fuzzel_menu "🔔 Reminders ❯ " "$LINES_COUNT")
+[[ -z "$CHOICE" ]] && exit 0
+
+if [[ "$CHOICE" == "➕ Set New Reminder" ]]; then
+    prompt_new_reminder
+elif [[ "$CHOICE" =~ ^\[([0-9]+)\] ]]; then
+    SELECTED_ID="${BASH_REMATCH[1]}"
+    CONFIRM=$(echo -e "✖ Cancel Reminder [$SELECTED_ID]\n🔙 Keep Running" | fuzzel_menu "Action for [$SELECTED_ID] ❯ " 2)
+    if [[ "$CONFIRM" == "✖ Cancel Reminder"* ]]; then
+        kill_reminder_by_id "$SELECTED_ID"
+    fi
+fi
+
