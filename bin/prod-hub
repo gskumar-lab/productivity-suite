@@ -9,6 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/core.sh"
 
 show_help() {
+    clear
     cat << 'EOF'
 Productivity Hub Helper
 =======================
@@ -178,7 +179,7 @@ while true; do
                 *) continue ;; # If user presses Escape, go back to main menu
             esac
 
-            "$TERMINAL" -a "view-help" -e sh -c "$cmd | less" &
+            "$TERMINAL" -a "view-help" -e sh -c "$cmd ; echo; read -p 'Press Enter to close...'" &
             exit 0
             ;;
         *)
