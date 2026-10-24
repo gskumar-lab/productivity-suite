@@ -25,9 +25,16 @@ EOF
 
 run_all() {
     log_event "prod-notify: Dispatching master notifications."
+
+    # 1. Tuxedo Overdue
     "$BIN_DIR/prod-tasks" --reminders-overdue
+    # 2. Tuxedo Today
     "$BIN_DIR/prod-tasks" --reminders-today
+    # 3. Routine Incomplete
     "$BIN_DIR/prod-routine" --notify
+    # 4. Active Quick Reminders
+    "$BIN_DIR/prod-reminders" --notify
+
     log_event "prod-notify: Initiating background autosync."
     sync_data > "$SYNC_LOG" 2>&1 &
     disown

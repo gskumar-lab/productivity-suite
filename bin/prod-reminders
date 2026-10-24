@@ -21,6 +21,7 @@ Options:
   -a, --add <time> <msg>  Set a reminder directly via CLI (e.g., 15m "Check oven")
   -l, --list              List active reminders in terminal
   -k, --kill <id>         Cancel an active reminder by its ID
+  -n, --notify            Desktop alert if reminders are active
   -h, --help              Show this help message
 
 Run without arguments to open the interactive Fuzzel reminder interface.
@@ -249,6 +250,25 @@ if [[ $# -gt 0 ]]; then
             [[ -z "${2:-}" ]] && { echo "Usage: prod-reminders --kill <id>"; exit 1; }
             kill_reminder_by_id "$2"
             exit $?
+            ;;
+        -n|--notify)
+            if [[ ${#MENU_LINES[@]} -gt 0 ]]; then
+                msg=""
+                for line in "${MENU_LINES[@]}"; do
+                    msg+="$line\n"
+                done
+                if command -v notify-send >/dev/null 2>&1; then
+                    action=$(notify-send -e -t 0 "⏳ Active Reminders (${#MENU_LINES[@]})" "$msg" \
+                        --action="open=Open Menu" \
+                        --action="dismiss=Dismiss" \
+                        --icon=alarm-clock)
+                    if [[ "$action" == "open" ]]; then
+                        "$SCRIPT_DIR/prod-reminders" &
+                        disown
+                    fi
+                fi
+            fi
+            exit 0
             ;;
         -a|--add)
             [[ -z "${2:-}" || -z "${3:-}" ]] && { echo "Usage: prod-reminders --add <time> <message>"; exit 1; }

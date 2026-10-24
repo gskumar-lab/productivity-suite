@@ -25,6 +25,7 @@ Modules:
   -r, --routine   [args...]   Route to Daily Routine TUI
   -k, --tasks     [args...]   Route to Tasks & Checklists (Tuxedo)
   -m, --reminder  [args...]   Route to Quick Reminders daemon
+  -no, --notify   [args...]   Route to Master Notifications
 
 Global Commands:
   -q, --quicknote             Jot a quick timestamped note
@@ -86,6 +87,11 @@ if [[ $# -gt 0 ]]; then
             "$BIN_DIR/prod-reminders" "$@"
             exit 0
             ;;
+        -no|--notify)
+            shift
+            "$BIN_DIR/prod-notify" "$@"
+            exit 0
+            ;;
         -s|--sync)
             log_event "Force Sync triggered via CLI"
             sync_data >> "$LOG_FILE" 2>&1
@@ -116,19 +122,12 @@ fi
 # INTERACTIVE FUZZEL MENU
 # ==========================================
 while true; do
-    if [[ -f "$AUTOSYNC_FILE" ]]; then
-        AUTOSYNC_LABEL="🔄 Autosync: [ON]"
-    else
-        AUTOSYNC_LABEL="🔄 Autosync: [OFF]"
-    fi
+    MAIN_OPTIONS="📝 Notes\n⚡ Quick Note\n⏱️ Timers\n🔄 Routine\n✅ Tasks\n🔔 Reminder\n⚙️ Options"
 
-    # Fetch Master Cron Status
-    MASTER_CRON_STATUS=$("$BIN_DIR/prod-notify" --status)
-    CRON_LABEL="⏰ Master Cron: [$MASTER_CRON_STATUS]"
+    CHOICE=$(echo -e "$MAIN_OPTIONS" | fuzzel_menu "Productivity Hub ❯ " 7)
 
-    OPTIONS="📝 Notes\n⚡ Quick Note\n⏱️ Timers\n🔄 Routine\n✅ Tasks\n🔔 Reminder\n📢 Run Master Check\n☁️ Force Sync\n$AUTOSYNC_LABEL\n📄 View Logs\n❓ Help"
-
-    CHOICE=$(echo -e "$OPTIONS" | fuzzel_menu "Productivity Hub ❯ " 12)
+    # Exit if user presses Escape on the main menu
+    [[ -z "$CHOICE" ]] && exit 0
 
     case "$CHOICE" in
         "📝 Notes")
@@ -155,48 +154,66 @@ while true; do
             "$BIN_DIR/prod-reminders" &
             exit 0
             ;;
-        "📢 Run Master Check")
-            "$BIN_DIR/prod-notify" --run &
-            exit 0
-            ;;
-        "$CRON_LABEL")
-            "$BIN_DIR/prod-notify" --toggle-cron
-            # The loop continues to instantly refresh the ON/OFF label
-            ;;
-        "☁️ Force Sync")
-            log_event "Force Sync triggered manually"
-            sync_data >> "$LOG_FILE" 2>&1 &
-            disown
-            exit 0
-            ;;
-        "$AUTOSYNC_LABEL")
-            toggle_autosync
-            # Loop continues so Fuzzel immediately refreshes the ON/OFF label
-            ;;
-        "📄 View Logs")
-            touch "$LOG_FILE"
-            "$TERMINAL" -a "view-logs" -e le +G "$LOG_FILE" &
-            exit 0
-            ;;
-        "❓ Help")
-            help_choice=$(echo -e "1. Hub Overview\n2. 📝 Notes Help\n3. ⏱️ Timers Help\n4. 🔄 Routine Help\n5. ✅ Tasks Help\n6. 🔔 Reminders Help" | fuzzel_menu "📖 Select Manual ❯ " 6)
+        "⚙️ Options")
+            # Submenu Loop
+            while true; do
+                if [[ -f "$AUTOSYNC_FILE" ]]; then
+                    AUTOSYNC_LABEL="🔄 Autosync: [ON]"
+                else
+                    AUTOSYNC_LABEL="🔄 Autosync: [OFF]"
+                fi
 
-            case "$help_choice" in
-                1*) cmd="$BIN_DIR/prod-hub --help" ;;
-                2*) cmd="$BIN_DIR/prod-notes --help" ;;
-                3*) cmd="$BIN_DIR/prod-timers --help" ;;
-                4*) cmd="$BIN_DIR/prod-routine --help" ;;
-                5*) cmd="$BIN_DIR/prod-tasks --help" ;;
-                6*) cmd="$BIN_DIR/prod-reminders --help" ;;
-                7*) cmd="$BIN_DIR/prod-notify --help" ;;
-                *) continue ;; # If user presses Escape, go back to main menu
-            esac
+                MASTER_CRON_STATUS=$("$BIN_DIR/prod-notify" --status)
+                CRON_LABEL="⏰ Master Cron: [$MASTER_CRON_STATUS]"
 
-            "$TERMINAL" -a "view-help" -e sh -c "$cmd ; echo; read -p 'Press Enter to close...'" &
-            exit 0
-            ;;
-        *)
-            exit 0
+                OPT_OPTIONS="📢 Run Master Check\n☁️ Force Sync\n$AUTOSYNC_LABEL\n$CRON_LABEL\n📄 View Logs\n❓ Help\n🔙 Back"
+
+                OPT_CHOICE=$(echo -e "$OPT_OPTIONS" | fuzzel_menu "⚙️ Options ❯ " 7)
+
+                # Break back to Main Menu if user presses Escape or selects Back
+                [[ -z "$OPT_CHOICE" || "$OPT_CHOICE" == *"Back"* ]] && break
+
+                case "$OPT_CHOICE" in
+                    "📢 Run Master Check")
+                        "$BIN_DIR/prod-notify" --run &
+                        exit 0
+                        ;;
+                    "☁️ Force Sync")
+                        log_event "Force Sync triggered manually"
+                        sync_data >> "$LOG_FILE" 2>&1 &
+                        disown
+                        exit 0
+                        ;;
+                    "$AUTOSYNC_LABEL")
+                        toggle_autosync
+                        ;;
+                    "$CRON_LABEL")
+                        "$BIN_DIR/prod-notify" --toggle-cron
+                        ;;
+                    "📄 View Logs")
+                        touch "$LOG_FILE"
+                        "$TERMINAL" -a "view-logs" -e less +G "$LOG_FILE" &
+                        exit 0
+                        ;;
+                    "❓ Help")
+                        help_choice=$(echo -e "1. Hub Overview\n2. 📝 Notes Help\n3. ⏱️ Timers Help\n4. 🔄 Routine Help\n5. ✅ Tasks Help\n6. 🔔 Reminders Help\n7. 📢 Master Notify Help" | fuzzel_menu "📖 Select Manual ❯ " 7)
+
+                        case "$help_choice" in
+                            1*) cmd="$BIN_DIR/prod-hub --help" ;;
+                            2*) cmd="$BIN_DIR/prod-notes --help" ;;
+                            3*) cmd="$BIN_DIR/prod-timers --help" ;;
+                            4*) cmd="$BIN_DIR/prod-routine --help" ;;
+                            5*) cmd="$BIN_DIR/prod-tasks --help" ;;
+                            6*) cmd="$BIN_DIR/prod-reminders --help" ;;
+                            7*) cmd="$BIN_DIR/prod-notify --help" ;;
+                            *) continue ;; # Escape out of help goes back to Options
+                        esac
+
+                        "$TERMINAL" -a "view-help" -e sh -c "$cmd ; echo ""; read -p 'Press Enter to close...' " &
+                        exit 0
+                        ;;
+                esac
+            done
             ;;
     esac
 done
