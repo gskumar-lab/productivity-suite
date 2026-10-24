@@ -72,7 +72,7 @@ notify_hub() {
 fuzzel_menu() {
     local prompt="${1:-Select ❯ }"
     local lines="${2:-10}"
-    fuzzel --dmenu --prompt="$prompt" --lines="$lines" --horizontal-pad=20
+    fuzzel --dmenu --prompt="$prompt" --lines="$lines" --width 30
 }
 
 fuzzel_input() {
