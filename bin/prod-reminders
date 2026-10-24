@@ -13,12 +13,12 @@ mkdir -p "$REMINDER_DIR"
 
 show_help() {
     cat << 'EOF'
-Quick Reminders (Fuzzel + Background Daemon)
-============================================
+Quick Reminders Helper
+======================
 Usage: prod-reminders [OPTION] [ARGS...]
 
 Options:
-  -a, --add <time> <msg>  Set a reminder directly via CLI (e.g., prod-reminders -a 15m "Check oven")
+  -a, --add <time> <msg>  Set a reminder directly via CLI (e.g., 15m "Check oven")
   -l, --list              List active reminders in terminal
   -k, --kill <id>         Cancel an active reminder by its ID
   -h, --help              Show this help message
@@ -296,4 +296,3 @@ elif [[ "$CHOICE" =~ ^\[([0-9]+)\] ]]; then
         kill_reminder_by_id "$SELECTED_ID"
     fi
 fi
-

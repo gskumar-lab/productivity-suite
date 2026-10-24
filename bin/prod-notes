@@ -160,15 +160,35 @@ cmd_help() {
     read -r -p "Press [ENTER] to return..."
 }
 
+show_help() {
+    cat << 'EOF'
+Notes Vault Helper
+==================
+Usage: prod-notes [OPTIONS]
+
+Options:
+  -n,  --new            Create a new Markdown note
+  -v,  --view           Browse and read notes
+  -r,  --read           Browse and read notes using Glow
+  -s,  --search         Full-text search across notes
+  -t,  --tags           Browse notes by #tag
+  -qn, --quick          Jot a quick timestamped note
+  -vq, --view-quick     Search & copy quick notes
+  -h,  --help           Show this help message
+
+Run without arguments to launch the interactive TUI menu.
+EOF
+}
+
 # ==========================================
 # MAIN VAULT PREVIEW LOGIC
 # ==========================================
 export FZF_PREVIEW_OPTS='
     file={1}
     line={2}
-    
+
     if [ ! -f "$file" ]; then exit 1; fi
-    
+
     if [ -n "$line" ]; then
         cmd="cat"
         if command -v bat >/dev/null 2>&1; then cmd="bat --color=always --style=plain";
@@ -228,7 +248,7 @@ cmd_new() {
         echo "# $title" >"$file"
         echo -e "\nTags: \nDate: $(date +%Y-%m-%d)\n" >>"$file"
     fi
-    
+
     open_in_editor "$file"
 }
 
@@ -350,7 +370,7 @@ if [[ $# -gt 0 ]]; then
         -t|--tags)        cmd_tags; exit 0 ;;
         -qn|--quick)      cmd_quicknote; exit 0 ;;
         -vq|--view-quick) cmd_view_quicknotes; exit 0 ;;
-        -h|--help)        cmd_help; exit 0 ;;
+        -h|--help)        show_help; exit 0 ;;
         *) echo "Unknown option: $1 (use --help for reference)"; exit 1 ;;
     esac
 fi
@@ -358,7 +378,7 @@ fi
 while true; do
     sync_status="Off"
     [[ -f "$AUTOSYNC_FILE" ]] && sync_status="On"
-    
+
     choice=$(printf "📝 New Note\n📖 Read Notes\n👁️ View Notes\n🔍 Search Notes\n🏷️ Browse by Tag\n⚡ Add Quick Note\n📜 View Quick Notes\n⚙️ Toggle Hub Auto-Sync: [$sync_status]\n❓ Help / Info\n❌ Quit" |
         fzf --prompt="Menu> " \
             --layout=reverse \
@@ -385,4 +405,3 @@ while true; do
             ;;
     esac
 done
-

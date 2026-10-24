@@ -8,6 +8,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/core.sh
 source "$SCRIPT_DIR/../lib/core.sh"
 
+show_help() {
+    cat << 'EOF'
+Routine Planner Helper
+======================
+Usage: prod-routine [OPTIONS]
+
+Options:
+  --pomodoro      Launch Pomodoro Timer UI directly
+  --notify        Desktop alert if tasks remain today
+  --status        Output plain text status for Waybar/tmux
+  -h, --help      Show this help message
+
+Run without arguments to launch the interactive Routine planner.
+EOF
+}
+
 # ==========================================
 # 1. DEPENDENCIES & CONFIGURATION
 # ==========================================
@@ -373,7 +389,7 @@ if [[ $# -gt 0 ]]; then
             exit 0
             ;;
         -h|--help)
-            echo "Usage: $SCRIPT_NAME [--pomodoro | --notify | --status | --help]"
+            show_help
             exit 0
             ;;
     esac
@@ -607,5 +623,3 @@ EOF
             ;;
     esac
 done
-
-
