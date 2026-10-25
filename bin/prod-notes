@@ -21,40 +21,14 @@ EXT=".md"
 # QUICK NOTES INTEGRATION
 # ==========================================
 cmd_quicknote() {
-    trap "tput rmcup 2>/dev/null; clear; return 1 2>/dev/null || exit 1" SIGINT SIGTERM
-    tput smcup 2>/dev/null || true
-    clear
-
-    local CYAN='\033[1;36m'
-    local GREEN='\033[1;32m'
-    local DIM='\033[2m'
-    local NC='\033[0m'
-
-    echo -e "${CYAN}╭────────────────────────────────────────────╮${NC}"
-    echo -e "${CYAN}│                 QUICK NOTE                 │${NC}"
-    echo -e "${CYAN}│       [ENTER] Save | [CTRL-C] Cancel       │${NC}"
-    echo -e "${CYAN}╰────────────────────────────────────────────╯${NC}"
-    echo ""
-
-    if [[ -f "$QUICK_NOTES_FILE" ]]; then
-        echo -e "${DIM}Recent entries:${NC}"
-        tail -n 3 "$QUICK_NOTES_FILE" | sed 's/^/  /'
-        echo ""
-    fi
-
-    local NOTE=""
-    read -r -e -p "❯ Type note: " NOTE
+    local NOTES
+    NOTE=$(fuzzel_input "⚡ Quick Note ❯ ")
 
     if [[ -n "${NOTE// /}" ]]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S') - $NOTE" >> "$QUICK_NOTES_FILE"
-        echo -e "\n${GREEN}✔ Saved successfully!${NC}\n"
-    else
-        echo -e "\n${DIM}✖ Cancelled (empty note).${NC}\n"
+        notify_hub normal 2000 "Quick Note" "Saved successfully!"
+        trigger_autosync "quick-note"
     fi
-
-    read -r -p "Press [ENTER] to continue..."
-    tput rmcup 2>/dev/null || true
-    trap - SIGINT SIGTERM
 }
 
 cmd_glow_tui() {
