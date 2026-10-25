@@ -103,7 +103,7 @@ fi
 # ==========================================
 add_quick_todo() {
     local task prio
-    task=$(fuzzel_input "Quick Task (+project @context due:YYYY-MM-DD) ❯ ")
+    task=$(fuzzel_input "Quick Task (+project @context) ❯ ")
     [[ -z "${task// /}" ]] && return
 
     prio=$(fuzzel_input "Priority (A-Z, leave blank for none) ❯ ")
