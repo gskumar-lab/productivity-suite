@@ -135,7 +135,7 @@ checklists_menu() {
                 base_name=$(basename "$template" .txt)
                 new_active="$ACTIVE_CHECKLIST_DIR/${base_name}_$(date +%Y%m%d_%H%M).txt"
                 cp "$CHECKLIST_DIR/$template" "$new_active"
-                launch_and_sync "tuxedo-checklist" "$SCRIPT_PATH" --run-checklist-tui "$new_active"
+                launch_and_sync "Checklists" "$SCRIPT_PATH" --run-checklist-tui "$new_active"
                 ;;
             2*)
                 local cl_name safe_name new_active
@@ -145,11 +145,11 @@ checklists_menu() {
                 new_active="$ACTIVE_CHECKLIST_DIR/${safe_name}_$(date +%Y%m%d_%H%M).txt"
 
                 # Open editor in terminal
-                "$TERMINAL" -a "tuxedo-checklist" -e "$EDITOR" "$new_active"
+                "$TERMINAL" -a "checklist" -e "$EDITOR" "$new_active"
 
                 if [[ -f "$new_active" ]]; then
                     sed -i -e '/^$/d' -e '/^\[[ x]\]/! s/^/[ ] /' "$new_active"
-                    launch_and_sync "tuxedo-checklist" "$SCRIPT_PATH" --run-checklist-tui "$new_active"
+                    launch_and_sync "Checklists" "$SCRIPT_PATH" --run-checklist-tui "$new_active"
                 fi
                 ;;
             3*)
@@ -159,7 +159,7 @@ checklists_menu() {
                 active_file=$(echo "$actives" | xargs -n 1 basename | fuzzel_menu "Resume Active ❯ " 10)
                 [[ -z "$active_file" ]] && continue
                 full_path="$ACTIVE_CHECKLIST_DIR/$active_file"
-                launch_and_sync "tuxedo-checklist" "$SCRIPT_PATH" --run-checklist-tui "$full_path"
+                launch_and_sync "Checklists" "$SCRIPT_PATH" --run-checklist-tui "$full_path"
                 ;;
             4*)
                 local actives active_file full_path base_name unchecked
@@ -177,7 +177,7 @@ checklists_menu() {
                     continue
                 fi
 
-                launch_and_sync "tuxedo-checklist" "$SCRIPT_PATH" --run-export-tui "$full_path" "$base_name"
+                launch_and_sync "Checklists" "$SCRIPT_PATH" --run-export-tui "$full_path" "$base_name"
                 ;;
             5*)
                 local actives active_file full_path confirm
@@ -249,7 +249,7 @@ check_reminders() {
                 --icon=appointment-soon)
 
             if [[ "$action" == "open" ]]; then
-                launch_and_sync "tuxedo-wrapper" "tuxedo" "$TODO_FILE" &
+                launch_and_sync "Tuxedo Task Manager" "tuxedo" "$TODO_FILE" &
                 disown
             fi
         fi
@@ -313,7 +313,7 @@ check_dependencies
 
 if [[ $# -gt 0 ]]; then
     case "$1" in
-        -l|--launch)              launch_and_sync "tuxedo-wrapper" "tuxedo" "$TODO_FILE" ;;
+        -l|--launch)              launch_and_sync "Tuxedo Task Manager" "tuxedo" "$TODO_FILE" ;;
         -a|--add)                 add_quick_todo ;;
         -c|--checklists)          checklists_menu ;;
         -rt|--reminders-today)    check_reminders "today" ;;
@@ -329,7 +329,7 @@ else
         [[ -z "$choice" || "$choice" == *"Exit"* ]] && exit 0
 
         case "$choice" in
-            1*) launch_and_sync "tuxedo-wrapper" "tuxedo" "$TODO_FILE" ;;
+            1*) launch_and_sync "Tuxedo Task Manager" "tuxedo" "$TODO_FILE" ;;
             2*) add_quick_todo ;;
             3*) checklists_menu ;;
             4*) reminders_menu ;;

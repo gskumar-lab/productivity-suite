@@ -56,7 +56,7 @@ if [[ $# -gt 0 ]]; then
     case "$1" in
         -n|--notes)
             shift
-            launch_and_sync "integrated-notetaker" "$BIN_DIR/prod-notes" "$@"
+            launch_and_sync "Integrated Notetaker" "$BIN_DIR/prod-notes" "$@"
             exit 0
             ;;
         -q|--quicknote)
@@ -74,7 +74,7 @@ if [[ $# -gt 0 ]]; then
             if [[ "${1:-}" == "--notify" || "${1:-}" == "--status" ]]; then
                 "$BIN_DIR/prod-routine" "$@"
             else
-                launch_and_sync "routine-tui" "$BIN_DIR/prod-routine" "$@"
+                launch_and_sync "Routine TUI" "$BIN_DIR/prod-routine" "$@"
             fi
             exit 0
             ;;
@@ -132,11 +132,15 @@ while true; do
 
     case "$CHOICE" in
         "📝 Notes")
-            launch_and_sync "integrated-notetaker" "$BIN_DIR/prod-notes" &
+            launch_and_sync "Integrated Notetaker" "$BIN_DIR/prod-notes" &
             exit 0
             ;;
         "⚡ Quick Note")
+<<<<<<< HEAD
             "$BIN_DIR/prod-notes" --quick &
+=======
+            launch_and_sync "Quick Note" "$BIN_DIR/prod-notes" --quick &
+>>>>>>> feat/wayland-notifs
             exit 0
             ;;
         "⏱️ Timers")
@@ -144,7 +148,7 @@ while true; do
             exit 0
             ;;
         "🔄 Routine")
-            launch_and_sync "routine-tui" "$BIN_DIR/prod-routine" &
+            launch_and_sync "Routine TUI" "$BIN_DIR/prod-routine" &
             exit 0
             ;;
         "✅ Tasks")

@@ -87,7 +87,7 @@ launch_and_sync() {
     shift 2
 
     log_event "Launching: $app_id ($script_path $*)"
-    "$TERMINAL" -a "$app_id" -e "$script_path" "$@"
+    "$TERMINAL" -a "$app_id" --title "$app_id" -e "$script_path" "$@"
 
     trigger_autosync "$app_id"
 }

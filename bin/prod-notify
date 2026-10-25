@@ -3,6 +3,8 @@
 # Unified Startup, Cron Notification Dispatcher & Master Reminders
 
 set -uo pipefail
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/core.sh

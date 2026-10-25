@@ -369,7 +369,7 @@ if [[ $# -gt 0 ]]; then
                     "You have $todo_count tasks left today!")
 
                 if [[ "$action" == "open" ]]; then
-                    launch_and_sync "routine-tui" "$SCRIPT_PATH" &
+                    launch_and_sync "Routine TUI" "$SCRIPT_PATH" &
                     disown
                 fi
             fi
@@ -488,7 +488,7 @@ EOF
             fi
             ;;
         ctrl-p)
-            "$TERMINAL" -a "routine-pomodoro" -T "float-apps-by-title-size-small" -e "$SCRIPT_PATH" --pomodoro &
+            "$TERMINAL" -a "routine pomodoro" --title "Routine Pomodoro" -e "$SCRIPT_PATH" --pomodoro &
             disown
             ;;
         ctrl-s)
