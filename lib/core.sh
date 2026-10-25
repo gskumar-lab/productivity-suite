@@ -72,7 +72,7 @@ notify_hub() {
 fuzzel_menu() {
     local prompt="${1:-Select ❯ }"
     local lines="${2:-10}"
-    fuzzel --dmenu --prompt="$prompt" --lines="$lines" 
+    fuzzel --dmenu --prompt="$prompt" --lines="$lines"
 }
 
 fuzzel_input() {
@@ -105,7 +105,10 @@ trigger_autosync() {
 # 4. GIT SYNC ENGINE
 # ==========================================
 sync_data() {
-    export GIT_TERMINAL_PROMPT=0
+    # Strictly disable all credential and SSH prompts to prevent background hangs
+        export GIT_TERMINAL_PROMPT=0
+        export GIT_ASKPASS=/bin/true
+        export GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=10"
 
     # Prevent overlapping background syncs
     exec 9>"$SYNC_LOCK"
@@ -117,6 +120,7 @@ sync_data() {
     mkdir -p "$DATA_DIR"
     cd "$DATA_DIR" || {
         notify_hub critical 0 "Sync Error" "Cannot access $DATA_DIR"
+        exec 9>&- # Release lock
         return 1
     }
 
@@ -141,9 +145,9 @@ sync_data() {
 
         if [[ -z "$user_remote_url" ]]; then
             notify_hub critical 0 "Sync Error" "No remote URL provided. Aborting sync."
+            exec 9>&-
             return 1
         fi
-
         git remote add origin "$user_remote_url"
     fi
 
@@ -157,16 +161,20 @@ sync_data() {
 
     if ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
         notify_hub normal 3000 "Productivity Hub" "Offline Mode: Local changes committed."
+        exec 9>&-
         return 0
     fi
 
-    if ! git fetch origin "$GIT_BRANCH" >/dev/null 2>&1; then
-        if git push -u origin "$GIT_BRANCH"; then
+    # Wrap network calls in 30s timeout
+    if ! timeout 30s git fetch origin "$GIT_BRANCH" >/dev/null 2>&1; then
+        if timeout 30s git push -u origin "$GIT_BRANCH"; then
             notify_hub normal 3000 "Productivity Hub" "Initial branch pushed to remote."
         else
             notify_hub critical 0 "Sync Error" "Failed to push initial branch. Check sync.log."
+            exec 9>&-
             return 1
         fi
+        exec 9>&-
         return 0
     fi
 
@@ -179,35 +187,44 @@ sync_data() {
 
     if [[ "$ahead" -eq 0 && "$behind" -eq 0 ]]; then
         notify_hub normal 1000 "Productivity Hub" "Data is already synchronized."
+        exec 9>&-
         return 0
     elif [[ "$ahead" -eq 0 && "$behind" -gt 0 ]]; then
-        git pull --rebase origin "$GIT_BRANCH"
+        timeout 30s git pull --rebase origin "$GIT_BRANCH"
         notify_hub normal 3000 "Productivity Hub" "Pulled latest updates from remote."
+        exec 9>&-
         return 0
     elif [[ "$ahead" -gt 0 && "$behind" -eq 0 ]]; then
-        git push origin "$GIT_BRANCH"
+        timeout 30s git push origin "$GIT_BRANCH"
         notify_hub normal 1000 "Productivity Hub" "Pushed local updates to remote."
+        exec 9>&-
         return 0
     fi
 
     # Module 4: Rebase & Conflict Handling
     notify_hub normal 3000 "Productivity Hub" "Divergence detected. Attempting safe rebase..."
 
-    if git rebase "origin/$GIT_BRANCH"; then
-        git push origin "$GIT_BRANCH"
+    if timeout 30s git rebase "origin/$GIT_BRANCH"; then
+        timeout 30s git push origin "$GIT_BRANCH"
         notify_hub normal 2000 "Productivity Hub" "Rebase and push successful."
     else
         notify_hub critical 0 "Productivity Hub" "Conflict detected. Applying local preference..."
         git checkout --theirs .
         git add .
 
-        if git rebase --continue; then
-            git push origin "$GIT_BRANCH"
+        # Force Git to bypass opening Nvim/Vim to confirm the commit message
+        export GIT_EDITOR=true
+
+        if timeout 30s git rebase --continue; then
+            timeout 30s git push origin "$GIT_BRANCH"
             notify_hub normal 3000 "Productivity Hub" "Conflict resolved automatically. Sync complete."
         else
             git rebase --abort
             notify_hub critical 0 "Sync Error" "Rebase failed. Manual review required!"
+            exec 9>&-
             return 1
         fi
     fi
+    # Explicitly release lock
+    exec 9>&-
 }
