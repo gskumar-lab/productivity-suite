@@ -3,7 +3,7 @@
 # QTimer: Fuzzel Launcher + Foot Terminal Countdown, Stopwatch & Pomodoro Engine
 
 set -uo pipefail
-
+APP="Quick Timers"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/core.sh
 source "$SCRIPT_DIR/../lib/core.sh"
@@ -227,9 +227,9 @@ run_pomodoro() {
 spawn_timer_window() {
     log_event "Spawning timer: $*"
     if command -v systemd-run >/dev/null 2>&1; then
-        systemd-run --user --quiet "$TERMINAL" -a "quick-timers" -e "$SCRIPT_PATH" "$@"
+        systemd-run --user --quiet "$TERMINAL" -a "$APP" --title "$APP" -e "$SCRIPT_PATH" "$@"
     else
-        setsid -f "$TERMINAL" -a "quick-timers" -e "$SCRIPT_PATH" "$@" >/dev/null 2>&1
+        setsid -f "$TERMINAL" -a "$APP" --title "$APP" -e "$SCRIPT_PATH" "$@" >/dev/null 2>&1
     fi
     exit 0
 }
