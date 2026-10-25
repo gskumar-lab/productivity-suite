@@ -136,11 +136,7 @@ while true; do
             exit 0
             ;;
         "⚡ Quick Note")
-<<<<<<< HEAD
             "$BIN_DIR/prod-notes" --quick &
-=======
-            launch_and_sync "Quick Note" "$BIN_DIR/prod-notes" --quick &
->>>>>>> feat/wayland-notifs
             exit 0
             ;;
         "⏱️ Timers")
